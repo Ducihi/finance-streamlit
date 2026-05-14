@@ -3,3 +3,4 @@ pandas
 yfinance
 plotly
 pytrends
+urllib3<2

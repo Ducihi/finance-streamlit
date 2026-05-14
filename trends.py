@@ -30,8 +30,6 @@ def load_google_trends(keyword: str, start_date: date, end_date: date, geo: str)
                 hl="zh-TW",
                 tz=480,
                 timeout=(10, 25),
-                retries=2,
-                backoff_factor=0.4,
                 requests_args={
                     "headers": {
                         "User-Agent": (
@@ -52,8 +50,7 @@ def load_google_trends(keyword: str, start_date: date, end_date: date, geo: str)
     if trends.empty and last_error is not None:
         raise DataError(
             "Google Trends \u67e5\u8a62\u5931\u6557\uff1a"
-            f"{last_error}. \u82e5\u90e8\u7f72\u5e73\u53f0\u6301\u7e8c\u51fa\u73fe\u6b64\u932f\u8aa4\uff0c"
-            "\u901a\u5e38\u662f Google \u5c0d\u96f2\u7aef IP \u9650\u6d41\u6216\u66ab\u6642\u62d2\u7d55\u8acb\u6c42\u3002"
+            f"{last_error}. \u8acb\u7a0d\u5f8c\u91cd\u8a66\uff0c\u6216\u78ba\u8a8d\u95dc\u9375\u5b57\u8207\u5340\u57df\u8a2d\u5b9a\u3002"
         ) from last_error
 
     if trends.empty or keyword not in trends.columns:

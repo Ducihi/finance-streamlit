@@ -17,6 +17,8 @@ Notes:
 - Keep `.streamlit/config.toml` in the repository root for Streamlit configuration.
 - The app must be public if you want anyone with the link to access it.
 - Google Trends and Yahoo Finance calls depend on the deployed server's network access and upstream service availability.
+- Google Trends is fetched through `pytrends`. If the deployed app shows a Google Trends warning, the most common cause is Google temporarily rate-limiting or blocking the cloud server IP. The app caches trend results for one hour to reduce repeat requests.
+- If you change `requirements.txt`, reboot or redeploy the Streamlit app so dependency versions are rebuilt. This project pins `urllib3<2` for `pytrends` compatibility.
 
 ## Required Files
 
