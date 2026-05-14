@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from html import escape
+from pathlib import Path
+import sys
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
+
+CURRENT_DIR = Path(__file__).resolve().parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
 
 from data import DataError, filter_date_range, load_csv_data, load_yahoo_data
 from indicators import add_ema, add_macd, add_rsi, add_sma
@@ -15,6 +22,7 @@ from trends import GEO_OPTIONS, load_google_trends, merge_google_trends
 TEXT = {
     "app_title": "\u91d1\u878d\u6578\u64da\u67e5\u8a62\u5e73\u53f0",
     "disclaimer": "\u672c\u5de5\u5177\u7528\u65bc\u7814\u7a76\u8207\u6559\u80b2\u7528\u9014\uff0c\u8cc7\u6599\u8207\u5716\u8868\u4e0d\u69cb\u6210\u6295\u8cc7\u5efa\u8b70\u3002",
+    "research_only": "\u7814\u7a76\u7528\u9014",
     "query_settings": "\u67e5\u8a62\u8a2d\u5b9a",
     "data_source": "\u8cc7\u6599\u4f86\u6e90",
     "csv_upload": "CSV \u4e0a\u50b3",
@@ -65,7 +73,9 @@ TEXT = {
     "data_preview": "\u8cc7\u6599\u9810\u89bd",
     "enable_indicator": "\u8acb\u5728\u5074\u908a\u6b04\u555f\u7528 RSI\u3001MACD \u6216\u6210\u4ea4\u91cf\u6307\u6a19\u3002",
     "trend_unavailable": "Google Trends \u5c1a\u672a\u8f09\u5165\uff0c\u8acb\u555f\u7528\u6293\u53d6\u4e26\u78ba\u8a8d\u95dc\u9375\u5b57\u3002",
+    "trend_rate_limit_help": "Google Trends \u5728\u96f2\u7aef\u53ef\u80fd\u56e0 IP \u9650\u6d41\u800c\u56de\u50b3 429\u3002\u50f9\u683c\u8207\u6280\u8853\u6307\u6a19\u4ecd\u53ef\u6b63\u5e38\u4f7f\u7528\uff0c\u8acb\u7a0d\u5f8c\u518d\u91cd\u8a66\u6216\u95dc\u9589 Google Trends \u6293\u53d6\u3002",
     "trend_value": "\u641c\u5c0b\u71b1\u5ea6",
+    "trend_rows": "Google Trends \u8cc7\u6599\u7b46\u6578",
     "download_csv": "\u4e0b\u8f09 CSV",
     "to": "\u81f3",
 }
@@ -77,6 +87,197 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_google_trends(keyword: str, start_date: date, end_date: date, geo: str) -> pd.DataFrame:
+    return load_google_trends(keyword, start_date, end_date, geo)
+
+
+def apply_layout_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --panel-bg: #ffffff;
+            --muted-bg: #f7f9fc;
+            --border: #e5e7eb;
+            --text: #202638;
+            --muted: #687386;
+            --accent: #ef4444;
+            --accent-soft: #fff1f2;
+        }
+
+        .block-container {
+            max-width: 1320px;
+            padding-top: 2.2rem;
+            padding-bottom: 2.5rem;
+        }
+
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #f6f8fb 0%, #eef2f7 100%);
+            border-right: 1px solid var(--border);
+        }
+
+        [data-testid="stSidebar"] h1,
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3 {
+            letter-spacing: 0;
+        }
+
+        div[data-testid="stMetric"] {
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem 1.1rem;
+        }
+
+        div[data-testid="stMetric"] label {
+            color: var(--muted);
+        }
+
+        .dashboard-header {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 1.25rem;
+            margin: 0 0 1rem;
+            padding: 1.1rem 1.25rem;
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+
+        .dashboard-title {
+            margin: 0;
+            color: var(--text);
+            font-size: clamp(1.6rem, 2.2vw, 2.2rem);
+            font-weight: 750;
+            line-height: 1.15;
+        }
+
+        .dashboard-subtitle {
+            margin-top: 0.45rem;
+            color: var(--muted);
+            font-size: 0.98rem;
+        }
+
+        .dashboard-badge {
+            flex: 0 0 auto;
+            color: #991b1b;
+            background: var(--accent-soft);
+            border: 1px solid #fecdd3;
+            border-radius: 999px;
+            padding: 0.45rem 0.8rem;
+            font-size: 0.9rem;
+            font-weight: 650;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.85rem;
+            margin: 0.85rem 0 1.35rem;
+        }
+
+        .metric-card {
+            min-height: 104px;
+            padding: 1rem;
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+
+        .metric-label {
+            color: var(--muted);
+            font-size: 0.88rem;
+            font-weight: 650;
+            margin-bottom: 0.45rem;
+        }
+
+        .metric-value {
+            color: var(--text);
+            font-size: clamp(1.35rem, 2.1vw, 2.2rem);
+            font-weight: 720;
+            line-height: 1.15;
+            overflow-wrap: anywhere;
+        }
+
+        .metric-value.is-long {
+            font-size: clamp(1.05rem, 1.35vw, 1.35rem);
+            line-height: 1.3;
+        }
+
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 0.35rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .stTabs [data-baseweb="tab"] {
+            height: 2.8rem;
+            padding: 0 0.9rem;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .stAlert {
+            border-radius: 8px;
+        }
+
+        @media (max-width: 1100px) {
+            .metric-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .dashboard-header {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .block-container {
+                padding-top: 1rem;
+            }
+            .metric-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_dashboard_header(symbol: str, source: object, data: pd.DataFrame) -> None:
+    date_range = f"{data['Date'].min():%Y-%m-%d} {TEXT['to']} {data['Date'].max():%Y-%m-%d}"
+    st.markdown(
+        f"""
+        <section class="dashboard-header">
+            <div>
+                <h1 class="dashboard-title">{escape(symbol)} - {escape(str(source))}</h1>
+                <div class="dashboard-subtitle">{escape(date_range)} | {len(data):,} {escape(TEXT["rows"])}</div>
+            </div>
+            <div class="dashboard-badge">{escape(TEXT["research_only"])}</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_metric_cards(summary: dict[str, str]) -> None:
+    cards = []
+    for label, value in summary.items():
+        value_class = "metric-value is-long" if label == TEXT["date_span"] else "metric-value"
+        cards.append(
+            f"""
+            <div class="metric-card">
+                <div class="metric-label">{escape(label)}</div>
+                <div class="{value_class}">{escape(value)}</div>
+            </div>
+            """
+        )
+    st.markdown(f'<section class="metric-grid">{"".join(cards)}</section>', unsafe_allow_html=True)
 
 
 def format_number(value: float | int | None, decimals: int = 2) -> str:
@@ -404,10 +605,8 @@ def sidebar_settings() -> dict[str, object]:
 
 
 def main() -> None:
+    apply_layout_styles()
     settings = sidebar_settings()
-
-    st.title(TEXT["app_title"])
-    st.caption(TEXT["disclaimer"])
 
     date_range = settings["date_range"]
     if not isinstance(date_range, tuple) or len(date_range) != 2:
@@ -464,20 +663,22 @@ def main() -> None:
         )
 
     trend_error = None
+    trends_data = pd.DataFrame()
     if settings["enable_google_trends"]:
         try:
-            trends_data = load_google_trends(str(settings["trend_keyword"]), start_date, end_date, str(settings["trend_geo"]))
+            trends_data = cached_google_trends(
+                str(settings["trend_keyword"]),
+                start_date,
+                end_date,
+                str(settings["trend_geo"]),
+            )
             data = merge_google_trends(data, trends_data)
         except DataError as error:
             trend_error = str(error)
 
-    st.subheader(f"{symbol} - {settings['source']}")
-    st.caption(f"{data['Date'].min():%Y-%m-%d} {TEXT['to']} {data['Date'].max():%Y-%m-%d} | {len(data):,} {TEXT['rows']}")
-
+    render_dashboard_header(symbol, settings["source"], data)
     summary = calculate_summary(data)
-    metric_columns = st.columns(4)
-    for index, (label, value) in enumerate(summary.items()):
-        metric_columns[index % 4].metric(label, value)
+    render_metric_cards(summary)
 
     price_tab, indicator_tab, trend_tab, data_tab = st.tabs(
         [TEXT["price_chart"], TEXT["indicator_tab"], TEXT["trend_tab"], TEXT["data_preview"]]
@@ -518,14 +719,20 @@ def main() -> None:
     with trend_tab:
         if trend_error:
             st.warning(trend_error)
+            st.info(TEXT["trend_rate_limit_help"])
         elif "Google Trend" not in data.columns or data["Google Trend"].dropna().empty:
             st.info(TEXT["trend_unavailable"])
         else:
+            st.metric(TEXT["trend_rows"], f"{len(trends_data):,}")
             st.plotly_chart(
                 build_trend_chart(data, symbol, str(settings["trend_keyword"])),
                 use_container_width=True,
             )
-            st.dataframe(data[["Date", "Google Trend"]].dropna(), use_container_width=True, hide_index=True)
+            st.dataframe(
+                trends_data.rename(columns={"Date": "Trend Date"}),
+                use_container_width=True,
+                hide_index=True,
+            )
 
     with data_tab:
         st.dataframe(data, use_container_width=True, hide_index=True)
