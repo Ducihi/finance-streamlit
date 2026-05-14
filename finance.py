@@ -34,6 +34,8 @@ TEXT = {
     "enable_google_trends": "\u6293\u53d6 Google Trends",
     "trend_keyword": "Google Trends \u95dc\u9375\u5b57",
     "trend_geo": "\u641c\u5c0b\u5340\u57df",
+    "trend_query_button": "\u67e5\u8a62 Google Trends",
+    "trend_clear_button": "\u6e05\u9664 Google Trends \u7d50\u679c",
     "global": "\u5168\u7403",
     "taiwan": "\u53f0\u7063",
     "us": "\u7f8e\u570b",
@@ -71,6 +73,7 @@ TEXT = {
     "data_preview": "\u8cc7\u6599\u9810\u89bd",
     "enable_indicator": "\u8acb\u5728\u5074\u908a\u6b04\u555f\u7528 RSI\u3001MACD \u6216\u6210\u4ea4\u91cf\u6307\u6a19\u3002",
     "trend_unavailable": "Google Trends \u5c1a\u672a\u8f09\u5165\uff0c\u8acb\u555f\u7528\u6293\u53d6\u4e26\u78ba\u8a8d\u95dc\u9375\u5b57\u3002",
+    "trend_waiting": "\u8acb\u5728\u5074\u908a\u6b04\u6309\u4e0b\u300c\u67e5\u8a62 Google Trends\u300d\u5f8c\u518d\u67e5\u770b\u7d50\u679c\u3002",
     "trend_value": "\u641c\u5c0b\u71b1\u5ea6",
     "trend_rows": "Google Trends \u8cc7\u6599\u7b46\u6578",
     "download_csv": "\u4e0b\u8f09 CSV",
@@ -342,6 +345,15 @@ def available_indicator_columns(data: pd.DataFrame) -> list[str]:
     return columns
 
 
+def initialize_trends_state() -> None:
+    if "trends_data" not in st.session_state:
+        st.session_state.trends_data = None
+    if "trends_error" not in st.session_state:
+        st.session_state.trends_error = None
+    if "trends_params" not in st.session_state:
+        st.session_state.trends_params = None
+
+
 def sidebar_settings() -> dict[str, object]:
     st.sidebar.header(TEXT["query_settings"])
 
@@ -390,6 +402,17 @@ def sidebar_settings() -> dict[str, object]:
         TEXT["us"]: GEO_OPTIONS["United States"],
     }
     selected_geo_label = st.sidebar.selectbox(TEXT["trend_geo"], list(geo_labels.keys()))
+    query_google_trends = st.sidebar.button(
+        TEXT["trend_query_button"],
+        type="primary",
+        disabled=not enable_google_trends,
+        use_container_width=True,
+    )
+    clear_google_trends = st.sidebar.button(
+        TEXT["trend_clear_button"],
+        disabled=not enable_google_trends,
+        use_container_width=True,
+    )
 
     return {
         "source": source,
@@ -412,10 +435,13 @@ def sidebar_settings() -> dict[str, object]:
         "enable_google_trends": enable_google_trends,
         "trend_keyword": trend_keyword.strip(),
         "trend_geo": geo_labels[selected_geo_label],
+        "query_google_trends": query_google_trends,
+        "clear_google_trends": clear_google_trends,
     }
 
 
 def main() -> None:
+    initialize_trends_state()
     settings = sidebar_settings()
 
     st.title(TEXT["app_title"])
@@ -475,19 +501,40 @@ def main() -> None:
             int(settings["macd_signal"]),
         )
 
-    trend_error = None
-    trends_data = pd.DataFrame()
-    if settings["enable_google_trends"]:
+    trend_params = {
+        "keyword": str(settings["trend_keyword"]),
+        "start_date": start_date,
+        "end_date": end_date,
+        "geo": str(settings["trend_geo"]),
+    }
+
+    if settings["clear_google_trends"]:
+        st.session_state.trends_data = None
+        st.session_state.trends_error = None
+        st.session_state.trends_params = None
+
+    if settings["enable_google_trends"] and settings["query_google_trends"]:
         try:
-            trends_data = cached_google_trends(
-                str(settings["trend_keyword"]),
-                start_date,
-                end_date,
-                str(settings["trend_geo"]),
-            )
-            data = merge_google_trends(data, trends_data)
+            with st.spinner("Google Trends loading..."):
+                st.session_state.trends_data = cached_google_trends(**trend_params)
+            st.session_state.trends_error = None
+            st.session_state.trends_params = trend_params
         except DataError as error:
-            trend_error = str(error)
+            st.session_state.trends_data = None
+            st.session_state.trends_error = str(error)
+            st.session_state.trends_params = trend_params
+
+    trends_data = pd.DataFrame()
+    trend_error = st.session_state.trends_error
+    if (
+        settings["enable_google_trends"]
+        and st.session_state.trends_data is not None
+        and st.session_state.trends_params == trend_params
+    ):
+        trends_data = st.session_state.trends_data
+        data = merge_google_trends(data, trends_data)
+    elif not settings["query_google_trends"] and st.session_state.trends_params != trend_params:
+        trend_error = None
 
     st.subheader(f"{symbol} - {settings['source']}")
     st.caption(f"{data['Date'].min():%Y-%m-%d} {TEXT['to']} {data['Date'].max():%Y-%m-%d} | {len(data):,} {TEXT['rows']}")
@@ -534,8 +581,12 @@ def main() -> None:
                 )
 
     with trend_tab:
-        if trend_error:
+        if not settings["enable_google_trends"]:
+            st.info(TEXT["trend_unavailable"])
+        elif trend_error:
             st.warning(trend_error)
+        elif st.session_state.trends_params != trend_params:
+            st.info(TEXT["trend_waiting"])
         elif "Google Trend" not in data.columns or data["Google Trend"].dropna().empty:
             st.info(TEXT["trend_unavailable"])
         else:

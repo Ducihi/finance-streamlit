@@ -28,6 +28,8 @@ To keep the site available for other people at any time, deploy it to Streamlit 
 - Google Trends keyword interest
 - Downloadable CSV with price data, indicators, and trend data
 
+Google Trends is queried only when the sidebar button is clicked. Results are cached for one hour and stored in the Streamlit session to reduce repeated requests and avoid rate limits.
+
 ## CSV Format
 
 Required columns:
